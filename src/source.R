@@ -5,6 +5,8 @@ library(data.table)
 library(rvest)
 library(stringr)
 
+thf <- '#dd0031'
+
 #Gets links from any single url; string matches
 GetLinks <- function(url_name,string){
   files <- c()
@@ -38,7 +40,7 @@ UnzipCSV <- function(files){
 
 eric_url <- 'https://digital.nhs.uk/data-and-information/publications/statistical/estates-returns-information-collection'
 eric_links <- GetLinks(eric_url,'estates-returns-information-collection/')
-
+deflator <- read.csv('const/deflator.csv')
 # Site level data -------
 
 site_links <- sapply(eric_links,
@@ -172,6 +174,10 @@ FINAL_data <- site_data %>%
   ungroup() %>%
   mutate(cost = low + high + moderate + significant) %>%
   group_by(trust_code) %>% 
+  left_join(.,deflator,by='date') %>%
+  # Add GDP deflator
+  mutate(cost = cost * (deflator),
+         investment = investment * deflator) %>%
   mutate(total = cost + lag(investment,n=1,order_by=date)) %>%
   mutate(total_growth = (total -lag(total,n=1,order_by=date))/lag(total,n=1,order_by=date),
          invest_growth = (investment - lag(investment,n=1,order_by=date))/lag(investment,n=1,order_by=date),
@@ -188,11 +194,20 @@ baseline <- FINAL_data %>%
 
 # Data -------
 
-underlying_growth <- mean((baseline %>%
-  filter(!date %in% c('2004','2005','2019')))$total_growth)
+underlying_growth <- median((baseline %>%
+  filter(date > 2015))$total_growth)
+
+max_underlying_growth <- quantile((baseline %>%
+                             filter(!date %in% c('2004','2005')))$total_growth,0.65)
+
+min_underlying_growth <- quantile((baseline %>%
+                                     filter(!date %in% c('2004','2005')))$total_growth,0.35)
 
 cost_growth <- mean((baseline %>%
-                  filter(!date %in% c('2004','2005','2019')))$cost_growth)
+                  filter(!date %in% c('2004','2005')))$cost_growth)
+
+invest_growth <- mean((baseline %>%
+                       filter(!date %in% c('2004','2005')))$invest_growth)
 
 GetBacklog <- function(backlog,growth,investment,invest_growth,t){
   result <- (backlog * (1+growth)^t) - (investment * (1+invest_growth)^t)
@@ -200,48 +215,8 @@ GetBacklog <- function(backlog,growth,investment,invest_growth,t){
 }
 
 GetPolicy <- function(backlog,investment,growth,policy,t){
-  result <- (((policy - (backlog * (1+growth)^t))/-investment)^(1/t))-1
-  return(result)
+  ifelse((policy*backlog) > (backlog * (1+growth)^t),
+         -(investment * (1+((abs(((policy*backlog) - (backlog * (1+growth)^t))/-investment)^(1/t))-1))^t),
+         (investment * (1+(((((policy*backlog) - (backlog * (1+growth)^t))/-investment)^(1/t))-1))^t)
+         )
 }
-
-GetBacklog(backlog=13000,investment=800,growth=growth,t=30,invest_growth=0.03)
-GetPolicy(backlog=13000,investment=800,growth=growth,t=10,policy=10000)
-  
-# EDA / Plots -------
-
-# Baseline growth
-ggplot()+
-  geom_line(data=FINAL_data %>% filter(!date %in% c('2004','2005')),aes(x=date,y=total_growth,group=trust_code),alpha=0.1) +
-  geom_line(data=baseline%>% filter(!date %in% c('2004','2005')),aes(x=date,y=total_growth,group=1),lwd=1,col='red') +
-  ylim(-1,1) +
-  geom_hline(yintercept=0,linetype=2,lwd=1.5,col='black')+
-  theme_bw()
-
-# cost growth
-ggplot()+
-  geom_line(data=FINAL_data %>% filter(!date %in% c('2004','2005')),aes(x=date,y=cost_growth,group=trust_code),alpha=0.15) +
-  geom_line(data=baseline%>% filter(!date %in% c('2004','2005')),aes(x=date,y=cost_growth,group=1),lwd=1,col='red') +
-  ylim(-1,1) +
-  theme_bw()
-
-# cost growth
-ggplot()+
-  geom_function(fun=function(x){GetPolicy(backlog=11637,
-                                          investment=615,
-                                          growth=growth,
-                                          t=15,
-                                          policy=x)},col='green')+
-  geom_function(fun=function(x){GetPolicy(backlog=11637,
-                                          investment=615,
-                                          growth=growth,
-                                          t=10,
-                                          policy=x)},col='blue')+
-  geom_function(fun=function(x){GetPolicy(backlog=11637,
-                                          investment=615,
-                                          growth=growth,
-                                          t=5,
-                                          policy=x)},col='red')+
-  xlim(0,11637) +
-  xlab('Value backlog reduced to (£bn) by t years time') +
-  ylab('Annual real growth rates needed to achieve backlog level') +
-  theme_bw()

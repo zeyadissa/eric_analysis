@@ -1,0 +1,253 @@
+---
+title: "Maintenance Costs"
+author: "Zeyad Issa"
+date: "2024-03-02"
+output: 
+  html_document:
+    theme: journal
+    toc: yes
+    toc_float:
+      collapsed: true
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+library(tinytex)
+```
+
+```{r source, include=FALSE}
+source('src/source.R')
+
+thf <- '#dd0031'
+thf2 <- '#53a9cd'
+thf3 <- '#744284'
+thf4 <- '#ffd412'
+thf5 <- '#2a7979'
+thf6 <- '#ee9b90'
+
+```
+
+The data comes from the NHSD Estates Returns Information Collection (ERIC) dataset which is a yearly data-series that helpfully stretches from 1999 till 2023. It is available on both a trust and site level, with fields detailing the backlog maintenance over time. 
+
+## Site Level Data
+
+Reading in the site level data enables us to get the backlog at any point in time. The data set read in, after extensive wrangling, looks like this. 
+
+```{r sitetable,echo=F}
+head(site_data,10)
+```
+
+The cost to eliminate backlog maintenance by severity is only comparable across 2004-present as the field was unavailable prior. 
+
+### Distribution of costs
+
+There are roughly 1600 sites in the site-level data. Exploring the top 50 reveals substantial variation, with the site with the highest maintenance backlog having 35m worth of a backlog compared to the 5mn for the 50th highest. 
+
+```{r sites,echo=FALSE, warning=FALSE}
+p <- ggplot2::ggplot(data=site_data %>% 
+         filter(date == 1) %>%
+         group_by(site_code) %>%
+         summarise(cost=sum(cost,na.rm=T)) 
+         %>% slice_max(cost,n=50)
+         ) +
+  geom_col(
+    aes(
+      x=fct_reorder(site_code, desc(cost)),
+      y=cost/10e6),fill=thf) +
+  theme_bw()+
+  xlab('NHS site') +
+  ylab('Cost of eliminating backlog 2023 (£mn)')+
+  theme(
+    axis.text.x=element_blank(),
+    axis.ticks.x=element_blank()
+  )
+
+plotly::ggplotly(p)
+```
+### Inequality in maintenance backlog
+
+Looking at the 2023 distribution yields some interesting insights, with the top 50 sites (out of ~1600) accounting for half of the entire backlog maintenance. Looking at a simple Lorenz Curve reveals there is large inequality in the backlog maintenance, with the top 10% of sites accounting for the vast majority of the backlog maintenance. Here, the dashed line represents perfect equality (in other words, a situation where the maintenance backlog is the same across each site). The further the red line is from it, the larger the inequality.
+
+```{r dist,echo=FALSE, warning=FALSE}
+
+backlog_2023 <- (site_data %>% filter(date == 1))$cost %>% sum
+
+p<- ggplot2::ggplot(data = 
+                       site_data %>% 
+                       filter(date == 1) %>%
+                       group_by(site_code) %>%
+                       summarise(cost=sum(cost,na.rm=T)) %>%
+                       arrange((cost)) %>%
+                       mutate(cost=cumsum(cost)/backlog_2023,
+                              index = row_number()/nrow(.))) +
+  geom_line(
+    aes(
+      x=index,
+      y=cost,
+      group = 1),
+    col=thf) +
+  geom_function(
+    fun=function(x){x},
+    col='darkgray',
+    linetype=2
+  ) +
+  theme_bw()+
+  xlab('Cumulative share of sites from higher to lowest backlog') +
+  ylab('Cumulative share of backlog')
+
+plotly::ggplotly(p)
+```
+### Growth in severity over time
+
+Further, exploring the distribution over time of backlog by risk category reveals that, since the mid-2010s, the high, significant, and moderately serious backlog has increased substantially as a proportion of the low severity backlog, which has remained roughly constant if not slightly declining in the 2010s. This indicates a substantial increase in the backlog over time and also suggests a change in the mix of the available backlog, with investment more effectively  treating low cost maintenance.
+
+```{r risk, echo=FALSE, message=FALSE, warning=FALSE}
+p<-ggplot2::ggplot(data=
+                     site_data %>% 
+                     mutate(date=2023-date) %>%
+                     left_join(.,deflator,by='date') %>%
+                     mutate(cost = cost * deflator) %>%
+                     mutate(risk = case_when(
+                       risk == 'high' ~ '1. High',
+                       risk == 'significant' ~ '2. Significant',
+                       risk == 'moderate' ~ '3. Moderate',
+                       TRUE ~ '4. Low')) %>%
+                     group_by(date,risk) %>%
+                     summarise(cost=sum(cost,na.rm=T))) +
+  geom_line(
+    aes(x=date,y=cost/10e6,col=risk)
+  )+
+  scale_color_manual(values=c('1. High'=thf,'2. Significant'=thf2,'3. Moderate'=thf3,'4. Low'=thf5)) +
+  theme_bw()+
+  xlab('Date') +
+  ylab('Real cost of eliminating backlog (£mn)') +
+  labs(col='Risk category')
+
+plotly::ggplotly(p)
+```
+
+## Trust Data
+
+Unfortunately, due to the way the ERIC data is published, the maintenance backlog is only available the site-level data, whereas the investment / spend figures are only available for the trust-level ones. This means we need to aggregate everything up to a trust level and merge the trust level data for the investment data alongside the site-level data for the maintenance fields. The trust data is similar to the site data and looks like this
+
+```{r pressure,,echo=FALSE, warning=FALSE}
+head(trust_data,10)
+```
+
+### Investment variation
+
+As before, we unsurprisingly see a wide variation in investment. Although not as severe as the maintenace backlog, the investment data has a very long tail.
+
+```{r sites,,echo=FALSE, warning=FALSE}
+p <- ggplot2::ggplot(data=trust_data %>% 
+         filter(date == 1) %>%
+         group_by(trust_code) %>%
+         summarise(investment=sum(investment)) 
+         %>% slice_max(investment,n=181)
+         ) +
+  geom_col(
+    aes(
+      x=fct_reorder(trust_code, desc(investment)),
+      y=investment/10e6),fill=thf) +
+  theme_bw()+
+  xlab('NHS site') +
+  ylab('Cost of eliminating backlog 2023 (£mn)')+
+  theme(
+    axis.text.x=element_blank(),
+    axis.ticks.x=element_blank()
+  )
+
+plotly::ggplotly(p)
+```
+
+## Merging the data
+
+We now merge the data together and apply a deflator based off of the ONS year-on-year GDP deflator across all years as below:
+
+
+```{r merged, eval=FALSE}
+FINAL_data <- site_data %>%
+  # Unfortunately data must be aggergated up to trust level
+  dplyr::group_by(date,trust_code,risk) %>%
+  dplyr::summarise(cost = sum(cost,na.rm=T)) %>%
+  dplyr::ungroup()%>%
+  # Wrangling the data through, not important
+  tidyr::pivot_wider(names_from=risk,values_from=cost) %>%
+  dplyr::left_join(.,trust_data,site_date,by=c('date','trust_code')) %>%
+  dplyr::mutate(date = 2023 - date) %>%
+  dplyr::group_by(date,trust_code)%>%
+  dplyr::summarise(low = sum(low,na.rm=T),
+            moderate = sum(moderate,na.rm=T),
+            high = sum(high,na.rm=T),
+            significant = sum(significant,na.rm=T),
+            investment = sum(investment,na.rm=T)) %>%
+  # Remove NAs and replace with 0s
+  replace(is.na(.), 0) %>%
+  dplyr::ungroup() %>%
+  # Merge all risk categories together
+  dplyr::mutate(cost = low + high + moderate + significant) %>%
+  dplyr::group_by(trust_code) %>% 
+  # Add GDP deflator
+  dplyr::left_join(.,deflator,by='date') %>%
+  # Apply deflator and calculate both growth rates and underlying maintenance backlog over time
+  dplyr::mutate(cost = cost * (deflator),
+         investment = investment * deflator,
+         total = cost + dplyr::lag(investment,n=1,order_by=date),
+         total_growth = (total -dplyr::lag(total,n=1,order_by=date))/dplyr::lag(total,n=1,order_by=date),
+         invest_growth = (investment - dplyr::lag(investment,n=1,order_by=date))/dplyr::lag(investment,n=1,order_by=date),
+         cost_growth = (cost -dplyr::lag(cost,n=1,order_by=date))/dplyr::lag(cost,n=1,order_by=date))
+```
+
+
+The idea here is that there is an underlying growth trend in the maintenance backlog. In other words, if you spend nothing, the backlog will grow at x% every year. In order to get that figure, we need to look at the maintnence backlog at every period in addition to the maintenance spend in the previous period. This means that, if you have a maintenance backlog of 10 pounds in 2021, and spend 5 pounds at the end of the year, then in 2022 if the maintenance backlog is 6 the underlying growth will be 6 + 5 (which is 11). Thus the underlying growth rate is 10%. 
+
+## Underlying growth rates
+
+This would allow us to estimate the average growth underlying growth rates over time. In this case, we take post 2015 growth rates on average to account for the slight variation in reporting and the obvious buck in trend since 2015.
+
+```{r growth, eval=TRUE,echo=FALSE,warning=FALSE}
+ggplot()+
+  geom_line(data=FINAL_data %>% filter(date >2005),aes(x=date,y=total_growth,group=trust_code),alpha=0.1) +
+  geom_line(data=baseline%>% filter(date >2005),aes(x=date,y=total_growth,group=1),lwd=1,col='red') +
+  ylim(-1,1) +
+  geom_hline(yintercept=0,linetype=2,lwd=1.5,col='black')+
+  theme_bw()
+
+```
+
+We can then use the starting position for the investment and backlog to calculate the overall investment needed over a specific period of time to achieve a certain reduction (or change) in the maintenance backlog by the end of t years. this is given by the function below.
+
+Where $c$ is the cost of reducing the backlog, $t$ is the time from the start, $b$ is the backlog, $i$ is the investment, $g_b$ is the underlying growth rate in the backlog, and $p$ is the policy variable indicating how much we want the backlog to be reduced by as a percentage. 
+
+$$ c = i_{t=0} * (1 + p*b_{t=0}-\frac{b_{t=0}*(1+g_b)^t}{-i_{t=0}}^{1/t}-1)^t$$
+
+More simply, the backlog at any moment in time $t$ can be expressed as such, where $g_i$ represents the selected growth rate in investment over time.
+
+$$ b_t = b_{t=0}*(1+g_b)^t - (i_{t=0}*(1+g_i)^t) $$
+
+## Cost of reducing backlog
+
+Thus, using the above equations, we can calculate the expected cost of reducing the backlog to a certain proportion within ten years under different policy scenarios. The below graph shows the cost of reducing the backlog under an assumption of the median value for the investment growth rate, the lower quartile value,a nd the upper quartile value, showing the space for policy options available. 
+
+
+```{r cost, warning=F,echo=F}
+
+p <- ggplot()+
+  geom_function(fun=function(x){GetPolicy(backlog=11637,
+                                          investment=615,
+                                          growth=underlying_growth,
+                                          t=10,
+                                          policy=x)},col=thf)+
+  ylab('Investment needed (£bn) within 10 years to achieve policy') +
+  xlab('10-year backlog as a proportion of current backlog') +
+  geom_hline(yintercept=0)+
+  geom_vline(xintercept=1)+
+  xlim(0,2)+
+  scale_y_continuous(labels = function(x) x/1000) +
+  theme_bw()
+
+plotly::ggplotly(p)
+
+```
+
+Thus, the cost of reducing the backlog to 0 by 2034 will be roughly ~25bn pounds over the next ten years, whereas the cost of keeping it constant will be ~14bn pounds. Given average spend is roughly  800m pounds, that means that, assuming no growth, there will be a spend of 8bn pounds, which means a gap of 6bn just to prevent the backlog from growing.

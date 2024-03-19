@@ -40,7 +40,8 @@ UnzipCSV <- function(files){
 
 eric_url <- 'https://digital.nhs.uk/data-and-information/publications/statistical/estates-returns-information-collection'
 eric_links <- GetLinks(eric_url,'estates-returns-information-collection/')
-deflator <- read.csv('const/deflator.csv')
+deflator <- data.table::fread('https://raw.githubusercontent.com/zeyadissa/eric_analysis/main/const/deflator.csv')
+
 # Site level data -------
 
 site_links <- sapply(eric_links,
